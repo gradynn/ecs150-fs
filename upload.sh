@@ -1,6 +1,7 @@
 # Enter name of test file within apps folder (without .x extension)
 test_name='test_preempt' 
 
+
 echo "Enter CSIF username: "
 read username
 ssh $username@pc02.cs.ucdavis.edu "rm -rf ecs150-fs"
