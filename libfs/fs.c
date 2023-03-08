@@ -1,3 +1,7 @@
+/*rdir_free_ratio => what does that mean? Do we mount only one root dir?
+Do we write to the disk in fs_umount()?
+Setting up file - FAT_EOC, FAT allocation 
+How does signature get added to a disk?*/
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,12 +11,12 @@
 #include "disk.h"
 #include "fs.h"
 
+#define FAT_EOC 0xFFFF
 // BLOCK SIZE: 4096
 
 /* TODO: Phase 1 */
 struct superblock
 {
-	 //unsigned int
 	char signature[8];
 	uint16_t total_blk_count;
 	uint16_t rdir_blk;
@@ -27,7 +31,17 @@ struct file_alloc_table
 	uint16_t next;
 }__attribute__((packed));
 
+/*
 struct root_directory
+{
+	char filename[FS_FILENAME_LEN];
+	uint32_t filesize;
+	uint16_t blk_index;
+	uint8_t padding[10];
+}__attribute__((packed));
+*/
+
+struct file
 {
 	char filename[FS_FILENAME_LEN];
 	uint32_t filesize;
@@ -37,7 +51,7 @@ struct root_directory
 
 struct superblock super;
 struct file_alloc_table *fat_arr;
-struct root_directory root_dir;
+struct file root_dir[FS_FILE_MAX_COUNT];
 
 int fs_mount(const char *diskname)
 {
@@ -49,21 +63,35 @@ int fs_mount(const char *diskname)
 	if (disk_count == -1)
 		return -1;
 	
-	int read = block_read(0,&super);
+	int read = block_read(0, &super);
 	if ( read == -1)
+		return -1;
+	
+	/*
+	if (strcmp(super.signature, "ECS150fs") != 0)
+		return -1; */
+
+	if(super.total_blk_count != disk_count)
 		return -1; 
 	
-	read = block_read(super.root_idx, &root_dir);
+	read = block_read(super.rdir_blk, &root_dir);
 	if (read == -1)
 		return -1;
-		
+
+	//allocate memory for FAT?
+
 	return 0;
 }
 
 int fs_umount(void)
 {
 	/* TODO: Phase 1 */
-	//write to disk
+	// close currently open disk
+	if(block_disk_close() != 0) 
+		return -1;
+
+	return 0; 
+	// free memory?
 }
 
 int fs_info(void)
@@ -73,13 +101,35 @@ int fs_info(void)
 	printf("fat_blk_count=%d\n", super.fat_blk_count);
 	printf("rdir_blk=%d\n", super.rdir_blk);
 	printf("data_blk%d\n", super.data_blk);
-	printf("data_blk_count=d\n", super.data_blk_count);
-	printf("super.fat_blk = %d\n", super.fat_blk);
+	printf("data_blk_count=%d\n", super.data_blk_count);
+
+	printf("root_dir.entry[0]:\nfilename:%s\nfilesize:%d\n", root_dir[0].filename,root_dir[0].filesize);
+	//printf("fat_free_ratio=%d/%d",  );
+	//printf("rdir_free_ratio=%d/%d",);
 }
 
 int fs_create(const char *filename)
 {
-	/* TODO: Phase 2 */
+	if (strlen(filename) >= FS_FILENAME_LEN)
+		return -1; 
+
+	// find next open space in root directory array
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++)
+	{
+		if (strcmp(root_dir[i].filename, filename) == 0) 
+			return -1;
+
+		if (root_dir[i].filename[0] == NULL)
+		{
+			struct file new_file;
+			strcpy(new_file.filename, filename);
+			new_file.filesize = 0;
+			new_file.blk_index = FAT_EOC;
+			root_dir[i] = new_file;
+			return 0;
+		}
+	}
+	return -1;	
 }
 
 int fs_delete(const char *filename)
@@ -89,7 +139,16 @@ int fs_delete(const char *filename)
 
 int fs_ls(void)
 {
-	/* TODO: Phase 2 */
+	printf("FS Ls:\n");
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++)
+	{
+		if (strcmp(root_dir[i].filename, "\0") != 0) {
+			printf("file: %s, size: %d, data_blk: %d\n", 
+				root_dir[i].filename, 
+				root_dir[i].filesize,
+				root_dir[i].blk_index);
+		}
+	}
 }
 
 int fs_open(const char *filename)
