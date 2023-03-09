@@ -50,7 +50,7 @@ struct file
 }__attribute__((packed));
 
 struct superblock super;
-struct file_alloc_table *fat_arr;
+uint16_t *fat_arr;
 struct file root_dir[FS_FILE_MAX_COUNT];
 
 int fs_mount(const char *diskname)
@@ -64,12 +64,15 @@ int fs_mount(const char *diskname)
 		return -1;
 	
 	int read = block_read(0, &super);
-	if ( read == -1)
+	if (read == -1)
 		return -1;
 	
-	/*
-	if (strcmp(super.signature, "ECS150fs") != 0)
-		return -1; */
+	char *sig = "ECS150FS";
+	for (int i = 0; i < 8; i++)
+	{
+		if (super.signature[i] != sig[i])
+			return -1;
+	}
 
 	if(super.total_blk_count != disk_count)
 		return -1; 
@@ -78,20 +81,44 @@ int fs_mount(const char *diskname)
 	if (read == -1)
 		return -1;
 
-	//allocate memory for FAT?
+	// allocate memory for FAT
+	fat_arr = malloc(sizeof(uint16_t) * super.data_blk_count);
+	
+	// copy FAT from disk to memory
+	for (int i = 1; i <= super.fat_blk_count; i++)
+	{
+		if (block_read(i, &fat_arr[i * ((i - 1) * (BLOCK_SIZE / 16))]) != 0)
+			return -1;
+	}
 
 	return 0;
 }
 
 int fs_umount(void)
 {
-	/* TODO: Phase 1 */
+	// write super block to disk
+	if (block_write(0, &super) != 0)
+		return -1;
+
+	// write fat to disk
+	for (int i = 1; i <= super.fat_blk_count; i++)
+	{
+		if(block_write(i, &fat_arr[i * ((i - 1) * (BLOCK_SIZE / 16))]) != 0)
+			return -1;
+	}
+
+	// write root directory to disk
+	if (block_write(super.rdir_blk, &root_dir) != 0)
+		return -1;
+
 	// close currently open disk
 	if(block_disk_close() != 0) 
 		return -1;
 
+	// free FAT memory
+	free(fat_arr);
+
 	return 0; 
-	// free memory?
 }
 
 int fs_info(void)
@@ -103,9 +130,23 @@ int fs_info(void)
 	printf("data_blk%d\n", super.data_blk);
 	printf("data_blk_count=%d\n", super.data_blk_count);
 
-	printf("root_dir.entry[0]:\nfilename:%s\nfilesize:%d\n", root_dir[0].filename,root_dir[0].filesize);
-	//printf("fat_free_ratio=%d/%d",  );
-	//printf("rdir_free_ratio=%d/%d",);
+	// count free blocks in FAT
+	int fat_free = 0;
+	for (int i = 0; i < super.data_blk_count; i++)
+	{
+		if (fat_arr[i] == 0)
+			fat_free++;
+	}
+	printf("fat_free_ratio=%d/%d\n", fat_free, super.data_blk_count);
+
+	// count free blocks in root directory
+	int rdir_free = 0;
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++)
+	{
+		if (root_dir[i].filename[0] == '\0')
+			rdir_free++;
+	}
+	printf("rdir_free_ratio=%d/%d\n", rdir_free, FS_FILE_MAX_COUNT);
 }
 
 int fs_create(const char *filename)
@@ -119,12 +160,23 @@ int fs_create(const char *filename)
 		if (strcmp(root_dir[i].filename, filename) == 0) 
 			return -1;
 
-		if (root_dir[i].filename[0] == NULL)
+		if (root_dir[i].filename[0] == '\0')
 		{
 			struct file new_file;
 			strcpy(new_file.filename, filename);
 			new_file.filesize = 0;
-			new_file.blk_index = FAT_EOC;
+			
+			// find next open space in FAT
+			for (int j = 0; j < super.data_blk_count; j++)
+			{
+				if (fat_arr[j] == 0)
+				{
+					new_file.blk_index = j;
+					fat_arr[j] = FAT_EOC;
+					break;
+				}
+			}
+
 			root_dir[i] = new_file;
 			return 0;
 		}
@@ -134,7 +186,28 @@ int fs_create(const char *filename)
 
 int fs_delete(const char *filename)
 {
-	/* TODO: Phase 2 */
+	// find file in root directory
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++)
+	{
+		if (strcmp(root_dir[i].filename, filename) == 0)
+		{
+			// free FAT blocks
+			int next = root_dir[i].blk_index;
+			while (fat_arr[next] != FAT_EOC)
+			{
+				int temp = fat_arr[next];
+				fat_arr[next] = 0;
+				next = temp;
+			}
+			fat_arr[next] = 0;
+
+			// free root directory entry
+			strcpy(root_dir[i].filename, "\0");
+			root_dir[i].filesize = 0;
+			root_dir[i].blk_index = 0;
+			return 0;
+		}
+	}
 }
 
 int fs_ls(void)
