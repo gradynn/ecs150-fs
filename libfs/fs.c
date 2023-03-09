@@ -1,7 +1,3 @@
-/*rdir_free_ratio => what does that mean? Do we mount only one root dir?
-Do we write to the disk in fs_umount()?
-Setting up file - FAT_EOC, FAT allocation 
-How does signature get added to a disk?*/
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,12 +8,13 @@ How does signature get added to a disk?*/
 #include "fs.h"
 
 #define FAT_EOC 0xFFFF
-// BLOCK SIZE: 4096
+#define SIGN_LEN 8
+#define BLOCK_SIZE 4096
 
 /* TODO: Phase 1 */
 struct superblock
 {
-	char signature[8];
+	char signature[SIGN_LEN];
 	uint16_t total_blk_count;
 	uint16_t rdir_blk;
 	uint16_t data_blk;
@@ -25,21 +22,6 @@ struct superblock
 	uint8_t  fat_blk_count;
 	uint8_t padding[4079];
 }__attribute__((packed));
-
-struct file_alloc_table
-{
-	uint16_t next;
-}__attribute__((packed));
-
-/*
-struct root_directory
-{
-	char filename[FS_FILENAME_LEN];
-	uint32_t filesize;
-	uint16_t blk_index;
-	uint8_t padding[10];
-}__attribute__((packed));
-*/
 
 struct file
 {
@@ -68,7 +50,7 @@ int fs_mount(const char *diskname)
 		return -1;
 	
 	char *sig = "ECS150FS";
-	for (int i = 0; i < 8; i++)
+	for (int i = 0; i < SIGN_LEN; i++)
 	{
 		if (super.signature[i] != sig[i])
 			return -1;
@@ -89,6 +71,11 @@ int fs_mount(const char *diskname)
 	{
 		if (block_read(i, &fat_arr[i * ((i - 1) * (BLOCK_SIZE / 16))]) != 0)
 			return -1;
+	}
+
+	for (int i = 1; i < super.data_blk_count; i++)
+	{
+		printf("fat_arr[%d]=%d\n", i, fat_arr[i]);
 	}
 
 	return 0;
@@ -123,7 +110,6 @@ int fs_umount(void)
 
 int fs_info(void)
 {
-	/* TODO: Phase 1 */
 	printf("FS Info:\ntotal_blk_count=%d\n", super.total_blk_count);
 	printf("fat_blk_count=%d\n", super.fat_blk_count);
 	printf("rdir_blk=%d\n", super.rdir_blk);
@@ -192,14 +178,14 @@ int fs_delete(const char *filename)
 		if (strcmp(root_dir[i].filename, filename) == 0)
 		{
 			// free FAT blocks
-			int next = root_dir[i].blk_index;
-			while (fat_arr[next] != FAT_EOC)
+			int temp = root_dir[i].blk_index;
+			while (fat_arr[temp] != FAT_EOC)
 			{
-				int temp = fat_arr[next];
-				fat_arr[next] = 0;
-				next = temp;
+				int next = fat_arr[temp];
+				fat_arr[temp] = 0;
+				temp = next;
 			}
-			fat_arr[next] = 0;
+			fat_arr[temp] = 0;
 
 			// free root directory entry
 			strcpy(root_dir[i].filename, "\0");
