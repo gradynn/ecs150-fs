@@ -1,3 +1,5 @@
+/*How to check is disk is mounted?
+Does phase 3 look correct? */
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,9 +33,16 @@ struct file
 	uint8_t padding[10];
 }__attribute__((packed));
 
+struct file_descriptor
+{
+	int fd;
+	size_t offset;
+};
+
 struct superblock super;
 uint16_t *fat_arr;
 struct file root_dir[FS_FILE_MAX_COUNT];
+struct file_descriptor fd_table[32];
 
 int fs_mount(const char *diskname)
 {
@@ -73,10 +82,9 @@ int fs_mount(const char *diskname)
 			return -1;
 	}
 
-	for (int i = 1; i < super.data_blk_count; i++)
-	{
-		printf("fat_arr[%d]=%d\n", i, fat_arr[i]);
-	}
+	// initialize file descriptor table
+	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++)
+		fd_table[i].fd = -1;
 
 	return 0;
 }
@@ -194,6 +202,7 @@ int fs_delete(const char *filename)
 			return 0;
 		}
 	}
+	return -1; 
 }
 
 int fs_ls(void)
@@ -212,22 +221,46 @@ int fs_ls(void)
 
 int fs_open(const char *filename)
 {
-	/* TODO: Phase 3 */
+	// find file in root directory
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++)
+	{
+		if ( strcmp(root_dir[i].filename, filename) == 0)
+		{
+			for(int j = 0; j <FS_OPEN_MAX_COUNT; j++)
+			{
+				if ( fd_table[j].fd == -1)
+				{
+					fd_table[j].fd = i;
+					fd_table[j].offset = 0;
+					return j;
+				}
+			}
+		}
+	}
+	return -1; 
 }
 
 int fs_close(int fd)
 {
-	/* TODO: Phase 3 */
+	fd_table[fd].fd = -1;
+	fd_table[fd].offset = 0;
+	
+	return 0;
 }
 
 int fs_stat(int fd)
 {
-	/* TODO: Phase 3 */
+	if (fd > 31 || fd < 0)
+		return -1;
+
+	return (root_dir[fd_table[fd].fd].filesize);
 }
 
 int fs_lseek(int fd, size_t offset)
 {
-	/* TODO: Phase 3 */
+	fd_table[fd].offset = offset;
+
+	return 0;
 }
 
 int fs_write(int fd, void *buf, size_t count)
