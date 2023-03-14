@@ -35,14 +35,16 @@ struct file
 
 struct file_descriptor
 {
-	int fd;
+	int rdir_index;
 	size_t offset;
 };
+
 
 struct superblock super;
 uint16_t *fat_arr;
 struct file root_dir[FS_FILE_MAX_COUNT];
 struct file_descriptor fd_table[32];
+int disk_mounted;
 
 int fs_mount(const char *diskname)
 {
@@ -73,24 +75,34 @@ int fs_mount(const char *diskname)
 		return -1;
 
 	// allocate memory for FAT
-	fat_arr = malloc(sizeof(uint16_t) * super.data_blk_count);
+	int extra = super.data_blk_count % BLOCK_SIZE;
+	if (extra > 0 )
+		fat_arr = malloc(sizeof(uint16_t) * BLOCK_SIZE * (super.data_blk_count/BLOCK_SIZE +1));
+	else 
+		fat_arr = malloc(sizeof(uint16_t) * super.data_blk_count);
 	
 	// copy FAT from disk to memory
 	for (int i = 1; i <= super.fat_blk_count; i++)
-	{
-		if (block_read(i, &fat_arr[i * ((i - 1) * (BLOCK_SIZE / 16))]) != 0)
+	{	
+	
+		if (block_read(i, &fat_arr[(i - 1) * (BLOCK_SIZE / 2)]) != 0)
 			return -1;
 	}
 
 	// initialize file descriptor table
 	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++)
-		fd_table[i].fd = -1;
+		fd_table[i].rdir_index= -1;
+
+	disk_mounted = 1;
 
 	return 0;
 }
 
 int fs_umount(void)
 {
+	if (disk_mounted == 0)
+		return -1;
+
 	// write super block to disk
 	if (block_write(0, &super) != 0)
 		return -1;
@@ -98,7 +110,7 @@ int fs_umount(void)
 	// write fat to disk
 	for (int i = 1; i <= super.fat_blk_count; i++)
 	{
-		if(block_write(i, &fat_arr[i * ((i - 1) * (BLOCK_SIZE / 16))]) != 0)
+		if(block_write(i, &fat_arr[(i - 1) * (BLOCK_SIZE / 2)]) != 0)
 			return -1;
 	}
 
@@ -113,6 +125,8 @@ int fs_umount(void)
 	// free FAT memory
 	free(fat_arr);
 
+	disk_mounted = 0;
+
 	return 0; 
 }
 
@@ -121,7 +135,7 @@ int fs_info(void)
 	printf("FS Info:\ntotal_blk_count=%d\n", super.total_blk_count);
 	printf("fat_blk_count=%d\n", super.fat_blk_count);
 	printf("rdir_blk=%d\n", super.rdir_blk);
-	printf("data_blk%d\n", super.data_blk);
+	printf("data_blk=%d\n", super.data_blk);
 	printf("data_blk_count=%d\n", super.data_blk_count);
 
 	// count free blocks in FAT
@@ -145,6 +159,7 @@ int fs_info(void)
 
 int fs_create(const char *filename)
 {
+
 	if (strlen(filename) >= FS_FILENAME_LEN)
 		return -1; 
 
@@ -180,6 +195,7 @@ int fs_create(const char *filename)
 
 int fs_delete(const char *filename)
 {
+
 	// find file in root directory
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++)
 	{
@@ -228,9 +244,9 @@ int fs_open(const char *filename)
 		{
 			for(int j = 0; j <FS_OPEN_MAX_COUNT; j++)
 			{
-				if ( fd_table[j].fd == -1)
+				if ( fd_table[j].rdir_index == -1)
 				{
-					fd_table[j].fd = i;
+					fd_table[j].rdir_index = i;
 					fd_table[j].offset = 0;
 					return j;
 				}
@@ -242,7 +258,7 @@ int fs_open(const char *filename)
 
 int fs_close(int fd)
 {
-	fd_table[fd].fd = -1;
+	fd_table[fd].rdir_index = -1;
 	fd_table[fd].offset = 0;
 	
 	return 0;
@@ -253,7 +269,7 @@ int fs_stat(int fd)
 	if (fd > 31 || fd < 0)
 		return -1;
 
-	return (root_dir[fd_table[fd].fd].filesize);
+	return (root_dir[fd_table[fd].rdir_index].filesize);
 }
 
 int fs_lseek(int fd, size_t offset)
@@ -263,6 +279,49 @@ int fs_lseek(int fd, size_t offset)
 	return 0;
 }
 
+int index_by_offset(int fd, int extra)
+{
+	int offset = fd_table[fd].offset + extra;
+	int count = offset / BLOCK_SIZE;
+	int index = root_dir[fd_table[fd].rdir_index].blk_index;
+
+	for (int i = 0; i < count; i++)
+	{
+		index = fat_arr[index];
+	}
+
+	return index;
+}
+
+int blocks_to_access(int fd, int extra)
+{
+	int start_blk_count = fd_table[fd].offset / BLOCK_SIZE;
+	int end_blk_count = (fd_table[fd].offset + extra) / BLOCK_SIZE;
+	return end_blk_count - start_blk_count;
+}
+
+int blk_alloc(int fd)
+{
+	int index = root_dir[fd_table[fd].rdir_index].blk_index;
+	while (fat_arr[index] != FAT_EOC)
+	{
+		index = fat_arr[index];
+	}
+
+	// find first available block in FAT
+	for (int i = 0; i < super.data_blk_count; i++)
+	{
+		if (fat_arr[i] == 0)
+		{
+			fat_arr[index] = i;
+			fat_arr[i] = FAT_EOC;
+			return i;
+		}
+	}
+
+	return -1;
+}
+
 int fs_write(int fd, void *buf, size_t count)
 {
 	/* TODO: Phase 4 */
@@ -270,6 +329,53 @@ int fs_write(int fd, void *buf, size_t count)
 
 int fs_read(int fd, void *buf, size_t count)
 {
-	/* TODO: Phase 4 */
+	if (buf == NULL)
+		return -1;
+
+	size_t offset =  fd_table[fd].offset;
+	struct file file = root_dir[fd_table[fd].rdir_index];
+
+	int partial = (offset+count)%BLOCK_SIZE;
+	int start_index = index_by_offset(fd, 0);
+	int end_index = index_by_offset(fd, count);
+	int blocks_to_read = blocks_to_access(fd, count);
+
+	uint8_t bounce_buffer[BLOCK_SIZE];
+	for (int i = 0; i < BLOCK_SIZE; i++)
+		bounce_buffer[i] = 0;
+
+	if (blocks_to_read > 1) // multiple block read
+	{
+		int current_index = start_index;
+		for (int i = 0; i < blocks_to_read; i++)
+		{
+			block_read(current_index, bounce_buffer);
+
+			// read relevant data from bounce buffer to buf
+			if (i == 0) // first block
+			{
+				memcpy(buf, (void*)&bounce_buffer[offset], BLOCK_SIZE - offset);
+			}
+			else if (i == blocks_to_read - 1) // last block
+			{
+				memcpy(buf, bounce_buffer, partial);
+			}
+			else // middle block
+			{
+				memcpy(buf, bounce_buffer, BLOCK_SIZE);
+			}
+
+			current_index = fat_arr[current_index];
+		}
+	} 
+	else // single block read
+	{
+		block_read(start_index, bounce_buffer);
+		
+		// copy data to buffer
+		memcpy(buf, (void*)&bounce_buffer[offset], count);
+	}
+
+	return count;
 }
 
