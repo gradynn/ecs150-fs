@@ -84,7 +84,6 @@ int fs_mount(const char *diskname)
 	// copy FAT from disk to memory
 	for (int i = 1; i <= super.fat_blk_count; i++)
 	{	
-	
 		if (block_read(i, &fat_arr[(i - 1) * (BLOCK_SIZE / 2)]) != 0)
 			return -1;
 	}
@@ -274,17 +273,20 @@ int fs_stat(int fd)
 
 int fs_lseek(int fd, size_t offset)
 {
+	if (offset > root_dir[fd_table[fd].rdir_index].filesize)
+		return -1;
+
 	fd_table[fd].offset = offset;
 
 	return 0;
 }
 
-int index_by_offset(int fd, int extra)
+int get_index(int fd)
 {
-	int offset = fd_table[fd].offset + extra;
+	int offset = fd_table[fd].offset;
 	int count = offset / BLOCK_SIZE;
 	int index = root_dir[fd_table[fd].rdir_index].blk_index;
-
+	
 	for (int i = 0; i < count; i++)
 	{
 		index = fat_arr[index];
@@ -297,7 +299,7 @@ int blocks_to_access(int fd, int extra)
 {
 	int start_blk_count = fd_table[fd].offset / BLOCK_SIZE;
 	int end_blk_count = (fd_table[fd].offset + extra) / BLOCK_SIZE;
-	return end_blk_count - start_blk_count;
+	return end_blk_count - start_blk_count + 1;
 }
 
 int blk_alloc(int fd)
@@ -327,55 +329,64 @@ int fs_write(int fd, void *buf, size_t count)
 	/* TODO: Phase 4 */
 }
 
+
 int fs_read(int fd, void *buf, size_t count)
 {
 	if (buf == NULL)
 		return -1;
+	
+	size_t count_cpy = count;
+	size_t offset = fd_table[fd].offset;
+	printf("offset=%d\n", (int)offset);
+	int data_idx = get_index(fd); //starting data block to read from
+	printf("data_idx=%d\n", data_idx);
+	int total_blks = (count+offset)/ BLOCK_SIZE;
+	if ( (count+offset)%BLOCK_SIZE > 0) //if we don't read exact multiple of block size we need to read extra block
+		total_blks += 1; 
 
-	size_t offset =  fd_table[fd].offset;
-	struct file file = root_dir[fd_table[fd].rdir_index];
-
-	int partial = (offset+count)%BLOCK_SIZE;
-	int start_index = index_by_offset(fd, 0);
-	int end_index = index_by_offset(fd, count);
-	int blocks_to_read = blocks_to_access(fd, count);
-
-	uint8_t bounce_buffer[BLOCK_SIZE];
-	for (int i = 0; i < BLOCK_SIZE; i++)
-		bounce_buffer[i] = 0;
-
-	if (blocks_to_read > 1) // multiple block read
+	printf("total_blks=%d\n", total_blks);
+	int buf_idx = 0; 
+	uint8_t *temp_buf = malloc(sizeof(uint8_t) * count);
+	for ( int i = 0; i < total_blks; i++)
 	{
-		int current_index = start_index;
-		for (int i = 0; i < blocks_to_read; i++)
+		if ( offset == 0 && count >= BLOCK_SIZE)//full read
 		{
-			block_read(current_index, bounce_buffer);
-
-			// read relevant data from bounce buffer to buf
-			if (i == 0) // first block
-			{
-				memcpy(buf, (void*)&bounce_buffer[offset], BLOCK_SIZE - offset);
-			}
-			else if (i == blocks_to_read - 1) // last block
-			{
-				memcpy(buf, bounce_buffer, partial);
-			}
-			else // middle block
-			{
-				memcpy(buf, bounce_buffer, BLOCK_SIZE);
-			}
-
-			current_index = fat_arr[current_index];
+			if (block_read(data_idx + super.data_blk, &temp_buf[buf_idx]) != 0)
+		 		return -1;
+			buf_idx += BLOCK_SIZE;
+			count -= BLOCK_SIZE;
 		}
-	} 
-	else // single block read
-	{
-		block_read(start_index, bounce_buffer);
-		
-		// copy data to buffer
-		memcpy(buf, (void*)&bounce_buffer[offset], count);
-	}
+		else //partial read
+		{
+			printf("in partial\n");
+			uint8_t bounce[BLOCK_SIZE];
+			if ( block_read(data_idx + super.data_blk, bounce) != 0)
+				return -1; 
+			int bytes_read = 0; 
+			if ( i == total_blks -1)
+				bytes_read = count;
+			else
+				bytes_read = BLOCK_SIZE - offset;
+				
+			printf("bytes_read= %d", bytes_read);
+			for( int i = 0; i < BLOCK_SIZE; i++)
+				printf("%c", bounce[i]);
+			printf("\ntemp_buf: ");
 
-	return count;
+			memcpy(&temp_buf[buf_idx], &bounce[offset], bytes_read);
+			buf_idx += bytes_read;
+			count -= bytes_read;
+			offset = 0;
+		}
+		for( int i = 0; i < buf_idx; i++)
+			printf("%c", temp_buf[i]);
+		printf("\n");
+		data_idx = fat_arr[data_idx];
+	}
+	memcpy(buf, (void*)temp_buf, count_cpy);
+
+	fd_table[fd].offset = fd_table[fd].offset + count;
+	return buf_idx; 
+	
 }
 
