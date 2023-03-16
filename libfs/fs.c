@@ -48,6 +48,7 @@ int disk_mounted;
 
 int fs_mount(const char *diskname)
 {
+	disk_mounted = 0;
 	int open_disk = block_disk_open(diskname);
 	if (open_disk == -1)
 		return -1;
@@ -102,6 +103,12 @@ int fs_umount(void)
 	if (disk_mounted == 0)
 		return -1;
 
+	//check if file descriptors are still open
+	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++)
+	{
+		if (fd_table[i].rdir_index != -1)
+			return -1;
+	}
 	// write super block to disk
 	if (block_write(0, &super) != 0)
 		return -1;
@@ -112,7 +119,6 @@ int fs_umount(void)
 		if(block_write(i, &fat_arr[(i - 1) * (BLOCK_SIZE / 2)]) != 0)
 			return -1;
 	}
-
 	// write root directory to disk
 	if (block_write(super.rdir_blk, &root_dir) != 0)
 		return -1;
@@ -131,6 +137,9 @@ int fs_umount(void)
 
 int fs_info(void)
 {
+	if (disk_mounted == 0)
+		return -1;
+
 	printf("FS Info:\ntotal_blk_count=%d\n", super.total_blk_count);
 	printf("fat_blk_count=%d\n", super.fat_blk_count);
 	printf("rdir_blk=%d\n", super.rdir_blk);
@@ -154,12 +163,15 @@ int fs_info(void)
 			rdir_free++;
 	}
 	printf("rdir_free_ratio=%d/%d\n", rdir_free, FS_FILE_MAX_COUNT);
+	
+	return 0;
 }
 
 int fs_create(const char *filename)
 {
-
-	if (strlen(filename) >= FS_FILENAME_LEN)
+	if ( disk_mounted == 0)
+		return -1; 
+	if (filename == NULL || strlen(filename) >= FS_FILENAME_LEN)
 		return -1; 
 
 	// find next open space in root directory array
@@ -186,7 +198,16 @@ int fs_create(const char *filename)
 
 int fs_delete(const char *filename)
 {
-
+	if (disk_mounted == 0)
+		return -1;
+	if (filename == NULL || strlen(filename) >= FS_FILENAME_LEN)
+		return -1; 
+	
+	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++)
+	{
+		if ( strcmp(root_dir[fd_table[i].rdir_index].filename,filename) == 0)
+			return -1;
+	}
 	// find file in root directory
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++)
 	{
@@ -214,6 +235,8 @@ int fs_delete(const char *filename)
 
 int fs_ls(void)
 {
+	if (disk_mounted == 0)
+		return -1;
 	printf("FS Ls:\n");
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++)
 	{
@@ -224,10 +247,17 @@ int fs_ls(void)
 				root_dir[i].blk_index);
 		}
 	}
+
+	return 0;
 }
 
 int fs_open(const char *filename)
 {
+	if (disk_mounted == 0)
+		return -1;
+	if (filename == NULL || strlen(filename) >= FS_FILENAME_LEN)
+		return -1; 
+		
 	// find file in root directory
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++)
 	{
@@ -249,6 +279,16 @@ int fs_open(const char *filename)
 
 int fs_close(int fd)
 {
+	if (disk_mounted == 0)
+		return -1;
+
+	//fd out of bounds
+	if (fd >31 || fd < 0)
+		return -1; 
+	//fd is not currently open
+	if (fd_table[fd].rdir_index == -1)
+		return -1;
+	
 	fd_table[fd].rdir_index = -1;
 	fd_table[fd].offset = 0;
 	
@@ -257,7 +297,14 @@ int fs_close(int fd)
 
 int fs_stat(int fd)
 {
+	if (disk_mounted == 0)
+		return -1;
+
+	//fd out of bounds
 	if (fd > 31 || fd < 0)
+		return -1;
+	//fd is not currently open
+	if (fd_table[fd].rdir_index == -1)
 		return -1;
 
 	return (root_dir[fd_table[fd].rdir_index].filesize);
@@ -265,6 +312,16 @@ int fs_stat(int fd)
 
 int fs_lseek(int fd, size_t offset)
 {
+	if (disk_mounted == 0)
+		return -1;
+
+	//fd out of bounds
+	if (fd > 31 || fd < 0)
+		return -1;
+	//fd is not currently open
+	if (fd_table[fd].rdir_index == -1)
+		return -1;
+	//offset if bigger than the size of the file
 	if (offset > root_dir[fd_table[fd].rdir_index].filesize)
 		return -1;
 
@@ -319,7 +376,15 @@ int blk_alloc(int fd)
 
 int fs_write(int fd, void *buf, size_t count)
 {
-	/* TODO: Phase 4 */
+	if (disk_mounted == 0)
+		return -1; 
+
+	//fd out of bounds
+	if (fd > 31 || fd < 0)
+		return -1;
+	//fd is not currently open
+	if (fd_table[fd].rdir_index == -1)
+		return -1;
 	if ( buf == NULL)
 		return -1;
 	
@@ -334,6 +399,7 @@ int fs_write(int fd, void *buf, size_t count)
 	uint8_t *temp_buf = (uint8_t*)buf; 
 	for (int i = 0; i < total_blks; i++)
 	{
+		printf("data_idx = %d\n", data_idx);
 		if (  data_idx == FAT_EOC)//alloc new block
 		{
 			data_idx = blk_alloc(fd);
@@ -377,7 +443,16 @@ int fs_write(int fd, void *buf, size_t count)
 
 int fs_read(int fd, void *buf, size_t count)
 {
-	if (buf == NULL)
+	if (disk_mounted == 0)
+		return -1; 
+		
+	//fd out of bounds
+	if (fd > 31 || fd < 0)
+		return -1;
+	//fd is not currently open
+	if (fd_table[fd].rdir_index == -1)
+		return -1;
+	if ( buf == NULL)
 		return -1;
 	
 	size_t count_cpy = count;

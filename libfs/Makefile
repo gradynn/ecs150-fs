@@ -12,7 +12,7 @@ deps := $(patsubst %.o,%.d, $(objs))
 
 %.o: %.c
 	@echo "CC $@ $^"
-	$(CC) -c -o $@ $<
+	$(CC) $(CFLAGS) -c -o $@ $<
 	
 libfs.a: $(objs)
 	@echo "CC $@ $^"

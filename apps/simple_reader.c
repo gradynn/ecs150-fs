@@ -12,7 +12,7 @@ do {                                                     \
 	} else {											 \
 		printf("Function '%s' passed\n", func);		 	 \
 	}                                                    \
-} while (0)
+} while (0)												 \
 
 int main(int argc, char *argv[])
 {
