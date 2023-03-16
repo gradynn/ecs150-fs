@@ -9,6 +9,8 @@ do {                                                     \
 	if (!(cond)) {                                       \
 		fprintf(stderr, "Function '%s' failed\n", func); \
 		exit(EXIT_FAILURE);                              \
+	} else {											 \
+		printf("Function '%s' passed\n", func);		 	 \
 	}                                                    \
 } while (0)
 
