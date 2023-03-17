@@ -171,7 +171,7 @@ int fs_create(const char *filename)
 {
 	if ( disk_mounted == 0)
 		return -1; 
-	if (filename == NULL || strlen(filename) >= FS_FILENAME_LEN)
+	if (filename == NULL || strlen(filename) > FS_FILENAME_LEN)
 		return -1; 
 
 	// find next open space in root directory array
@@ -200,16 +200,14 @@ int fs_delete(const char *filename)
 {
 	if (disk_mounted == 0)
 		return -1;
-	if (filename == NULL || strlen(filename) >= FS_FILENAME_LEN)
+	if (filename == NULL || strlen(filename) > FS_FILENAME_LEN)
 		return -1; 
 	
-	// check if the file exists within the root directory
+	// check if the file is open in fd_table
 	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++)
 	{
-		if ( strcmp(root_dir[fd_table[i].rdir_index].filename, filename) == 0)
-			break;
-
-		if (i == FS_OPEN_MAX_COUNT - 1)
+		if ( fd_table[i].rdir_index != -1 &&
+			strcmp(root_dir[fd_table[i].rdir_index].filename, filename) == 0)
 			return -1;
 	}
 	
@@ -260,7 +258,7 @@ int fs_open(const char *filename)
 {
 	if (disk_mounted == 0)
 		return -1;
-	if (filename == NULL || strlen(filename) >= FS_FILENAME_LEN)
+	if (filename == NULL || strlen(filename) > FS_FILENAME_LEN)
 		return -1; 
 		
 	// find file in root directory
@@ -404,11 +402,11 @@ int fs_write(int fd, void *buf, size_t count)
 	uint8_t *temp_buf = (uint8_t*)buf; 
 	for (int i = 0; i < total_blks; i++)
 	{
-		if (  data_idx == FAT_EOC)//alloc new block
+		if (data_idx == FAT_EOC)//alloc new block
 		{
 			data_idx = blk_alloc(fd);
 			if(data_idx == -1)
-				return -1; 
+				return buf_idx; 
 		}
 		if ( offset == 0 && count >= BLOCK_SIZE)//full read
 		{
@@ -442,7 +440,7 @@ int fs_write(int fd, void *buf, size_t count)
 	fd_table[fd].offset = fd_table[fd].offset + count_cpy;
 	root_dir[fd_table[fd].rdir_index].filesize = root_dir[fd_table[fd].rdir_index].filesize - offset + count_cpy;
 	
-	return count_cpy;
+	return buf_idx;
 }
 
 int fs_read(int fd, void *buf, size_t count)
@@ -499,6 +497,6 @@ int fs_read(int fd, void *buf, size_t count)
 	memcpy(buf, (void*)temp_buf, count_cpy);
 
 	fd_table[fd].offset = fd_table[fd].offset + count_cpy;
-	return count_cpy; 
+	return buf_idx; 
 }
 
