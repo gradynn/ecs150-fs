@@ -1,0 +1,10 @@
+MOUNT
+OPEN    two-block
+SEEK    4092
+READ    8       DATA    aaaaaaaa
+SEEK    4095
+WRITE   DATA    bb
+SEEK    4092
+READ    8       DATA    aaabbaaa
+CLOSE   two-block
+UNMOUNT

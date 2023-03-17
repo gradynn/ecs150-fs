@@ -203,11 +203,16 @@ int fs_delete(const char *filename)
 	if (filename == NULL || strlen(filename) >= FS_FILENAME_LEN)
 		return -1; 
 	
+	// check if the file exists within the root directory
 	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++)
 	{
-		if ( strcmp(root_dir[fd_table[i].rdir_index].filename,filename) == 0)
+		if ( strcmp(root_dir[fd_table[i].rdir_index].filename, filename) == 0)
+			break;
+
+		if (i == FS_OPEN_MAX_COUNT - 1)
 			return -1;
 	}
+	
 	// find file in root directory
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++)
 	{
@@ -399,7 +404,6 @@ int fs_write(int fd, void *buf, size_t count)
 	uint8_t *temp_buf = (uint8_t*)buf; 
 	for (int i = 0; i < total_blks; i++)
 	{
-		printf("data_idx = %d\n", data_idx);
 		if (  data_idx == FAT_EOC)//alloc new block
 		{
 			data_idx = blk_alloc(fd);

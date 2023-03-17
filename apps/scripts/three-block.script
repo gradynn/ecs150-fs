@@ -1,0 +1,10 @@
+MOUNT
+OPEN    three-block
+SEEK    2048
+READ    8192    FILE    two-block
+SEEK    2048
+WRITE   FILE    two-block-b
+SEEK    2048
+READ    8192    FILE    two-block-b
+CLOSE
+UNMOUNT
