@@ -1,5 +1,3 @@
-/*How to check is disk is mounted?
-Does phase 3 look correct? */
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -391,7 +389,6 @@ int fs_write(int fd, void *buf, size_t count)
 	if ( buf == NULL)
 		return -1;
 	
-	size_t count_cpy = count;
 	size_t offset = fd_table[fd].offset;
 	int data_idx = root_dir[fd_table[fd].rdir_index].blk_index;
 	int total_blks = (count+offset)/ BLOCK_SIZE;
@@ -437,8 +434,8 @@ int fs_write(int fd, void *buf, size_t count)
 		}
 		data_idx = fat_arr[data_idx];
 	}
-	fd_table[fd].offset = fd_table[fd].offset + count_cpy;
-	root_dir[fd_table[fd].rdir_index].filesize = root_dir[fd_table[fd].rdir_index].filesize - offset + count_cpy;
+	fd_table[fd].offset = fd_table[fd].offset + buf_idx;
+	root_dir[fd_table[fd].rdir_index].filesize = root_dir[fd_table[fd].rdir_index].filesize - offset +  buf_idx;
 	
 	return buf_idx;
 }
@@ -457,13 +454,27 @@ int fs_read(int fd, void *buf, size_t count)
 	if ( buf == NULL)
 		return -1;
 	
-	size_t count_cpy = count;
 	size_t offset = fd_table[fd].offset;
 	int data_idx = read_get_index(fd); //starting data block to read from
-	int total_blks = (count+offset)/ BLOCK_SIZE;
-	if ( (count+offset)%BLOCK_SIZE > 0) //if we don't read exact multiple of block size we need to read extra block
+
+	/*
+	int start = root_dir[fd_table[fd].rdir_index].blk_index;
+	int start_blk = 0;
+	while (fat_arr[start] != FAT_EOC)
+	{
+		if (fat_arr[start] != (uint16_t)data_idx)
+			start_blk++;
+		else
+			break;
+	}
+	*/
+	int total_blks = (count + (offset % BLOCK_SIZE))/ BLOCK_SIZE;
+	if ( (count + (offset % BLOCK_SIZE)) % BLOCK_SIZE > 0) //if we don't read exact multiple of block size we need to read extra block
 		total_blks += 1; 
 
+	//printf("start_blk = %d", start_blk);
+	printf("data_idx = %d", data_idx);
+	printf("total_blks = %d", total_blks);
 	int buf_idx = 0; 
 	uint8_t *temp_buf = malloc(sizeof(uint8_t) * count);
 	for ( int i = 0; i < total_blks; i++)
@@ -494,9 +505,9 @@ int fs_read(int fd, void *buf, size_t count)
 		}
 		data_idx = fat_arr[data_idx];
 	}
-	memcpy(buf, (void*)temp_buf, count_cpy);
+	memcpy(buf, (void*)temp_buf, buf_idx);
 
-	fd_table[fd].offset = fd_table[fd].offset + count_cpy;
+	fd_table[fd].offset = fd_table[fd].offset + buf_idx;
 	return buf_idx; 
 }
 

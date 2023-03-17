@@ -1,0 +1,9 @@
+MOUNT
+OPEN    two-block
+SEEK    5000
+WRITE   DATA    xxxxxxxxxx
+SEEK    5000
+READ    10      DATA    xxxxxxxxxx
+CLOSE two-block
+DELETE two-block
+UNMOUNT
