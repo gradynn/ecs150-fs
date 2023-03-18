@@ -454,10 +454,10 @@ int fs_read(int fd, void *buf, size_t count)
 	if ( buf == NULL)
 		return -1;
 	
+	int count_cpy = count;
 	size_t offset = fd_table[fd].offset;
 	int data_idx = read_get_index(fd); //starting data block to read from
 
-	/*
 	int start = root_dir[fd_table[fd].rdir_index].blk_index;
 	int start_blk = 0;
 	while (fat_arr[start] != FAT_EOC)
@@ -466,18 +466,19 @@ int fs_read(int fd, void *buf, size_t count)
 			start_blk++;
 		else
 			break;
+
+		start = fat_arr[start];
 	}
-	*/
-	int total_blks = (count + (offset % BLOCK_SIZE))/ BLOCK_SIZE;
-	if ( (count + (offset % BLOCK_SIZE)) % BLOCK_SIZE > 0) //if we don't read exact multiple of block size we need to read extra block
+	int total_blks = (count + offset)/ BLOCK_SIZE;
+	if ( (count + offset) % BLOCK_SIZE > 0) //if we don't read exact multiple of block size we need to read extra block
 		total_blks += 1; 
 
-	//printf("start_blk = %d", start_blk);
+	printf("start_blk = %d", start_blk);
 	printf("data_idx = %d", data_idx);
 	printf("total_blks = %d", total_blks);
 	int buf_idx = 0; 
 	uint8_t *temp_buf = malloc(sizeof(uint8_t) * count);
-	for ( int i = 0; i < total_blks; i++)
+	for ( int i = start_blk; i < total_blks; i++)
 	{
 		if ( offset == 0 && count >= BLOCK_SIZE)//full read
 		{
@@ -505,7 +506,7 @@ int fs_read(int fd, void *buf, size_t count)
 		}
 		data_idx = fat_arr[data_idx];
 	}
-	memcpy(buf, (void*)temp_buf, buf_idx);
+	memcpy(buf, (void*)temp_buf, count_cpy);
 
 	fd_table[fd].offset = fd_table[fd].offset + buf_idx;
 	return buf_idx; 

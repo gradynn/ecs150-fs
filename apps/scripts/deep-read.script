@@ -1,9 +1,11 @@
 MOUNT
-OPEN    two-block
-SEEK    5000
-WRITE   DATA    xxxxxxxxxx
-SEEK    5000
-READ    10      DATA    xxxxxxxxxx
-CLOSE two-block
-DELETE two-block
+CREATE	file_fs
+OPEN	file_fs
+WRITE   FILE    two-block
+SEEK	5000
+WRITE	DATA	xxxxxxxxxx
+SEEK	5000
+READ	10	DATA	xxxxxxxxxx
+CLOSE	file-fs
+DELETE	file-fs
 UNMOUNT
